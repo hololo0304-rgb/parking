@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🅿️ 周邊即時車位看板</title>
+  <style>
+    :root {
+      --bg-color: #f4f6f9;
+      --card-bg: #ffffff;
+      --primary-color: #2b6cb0;
+      --text-main: #333333;
+      --text-muted: #666666;
+      --has-space-color: #28a745;
+      --full-space-color: #dc3545;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: var(--bg-color); color: var(--text-main); padding: 16px; max-width: 500px; margin: 0 auto; }
+    header { text-align: center; padding: 16px 0; }
+    h1 { font-size: 1.4rem; color: var(--primary-color); margin-bottom: 6px; }
+    .refresh-btn { display: block; width: 100%; margin: 16px 0; padding: 12px; background-color: var(--primary-color); color: white; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    #status-msg { text-align: center; padding: 20px; color: var(--text-muted); font-size: 0.95rem; }
+    .parking-list { display: flex; flex-direction: column; gap: 12px; }
+    .parking-card { background-color: var(--card-bg); border-radius: 10px; padding: 14px 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); display: flex; justify-content: space-between; align-items: center; }
+    .parking-info { display: flex; flex-direction: column; gap: 4px; max-width: 65%; }
+    .parking-name { font-size: 1.05rem; font-weight: bold; color: #111; }
+    .parking-dist { font-size: 0.85rem; color: var(--text-muted); }
+    .parking-status-box { text-align: right; }
+    .status-tag { display: inline-block; font-size: 0.9rem; font-weight: bold; padding: 4px 10px; border-radius: 6px; }
+    .status-has { background-color: #d4edda; color: var(--has-space-color); }
+    .status-full { background-color: #f8d7da; color: var(--full-space-color); }
+    .spinner { border: 4px solid #f3f3f3; border-top: 4px solid var(--primary-color); border-radius: 50%; width: 28px; height: 28px; animation: spin 1s linear infinite; margin: 10px auto; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>🅿️ 周邊即時車位看板</h1>
+  </header>
+
+  <button class="refresh-btn" onclick="initLocation()">🔄 更新即時車位資訊</button>
+
+  <div id="status-msg">
+    <div class="spinner"></div>
+    正在讀取 GPS 座標...
+  </div>
+
+  <div id="parking-container" class="parking-list"></div>
+
+  <script>
+    // ⚠️ 請替換為停車場專屬的 GAS 網址
+    const GAS_URL = 'https://script.google.com/macros/s/AKfycbxvfftrq1u1K8MWKNEFFdUBM-uHZiSvKopnl9gqy3CnjzG9gxdZFSax9FjIx7vMyyw/exec';
+
+    window.onload = function() { initLocation(); };
+
+    function initLocation() {
+      const statusEl = document.getElementById('status-msg');
+      const container = document.getElementById('parking-container');
+      statusEl.style.display = 'block';
+      statusEl.innerHTML = '<div class="spinner"></div>正在讀取 GPS 座標...';
+      container.innerHTML = '';
+
+      if (!navigator.geolocation) {
+        statusEl.innerHTML = '❌ 你的裝置不支援 GPS 定位功能';
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        position => {
+          fetchParkingBoard(position.coords.latitude, position.coords.longitude);
+        },
+        error => {
+          statusEl.innerHTML = (error.code === error.PERMISSION_DENIED) ? '❌ 請開啟瀏覽器的「位置存取權限」' : '無法取得位置資訊';
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }
+
+    function fetchParkingBoard(lat, lng) {
+      const statusEl = document.getElementById('status-msg');
+      statusEl.innerHTML = '<div class="spinner"></div>搜尋周邊 1.5 公里內停車場...';
+
+      fetch(`${GAS_URL}?lat=${lat}&lng=${lng}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.status !== 'success') {
+            statusEl.innerHTML = `⚠️ 錯誤: ${data.message}`;
+            return;
+          }
+          renderParkingBoard(data.parking);
+        })
+        .catch(err => {
+          statusEl.innerHTML = '❌ 連線失敗，請檢查網路或 GAS 網址設定';
+        });
+    }
+
+    function renderParkingBoard(parkings) {
+      const statusEl = document.getElementById('status-msg');
+      const container = document.getElementById('parking-container');
+
+      if (!parkings || parkings.length === 0) {
+        statusEl.innerHTML = '周邊 1.5 公里內暫無提供即時車位資料的公有停車場';
+        return;
+      }
+
+      statusEl.style.display = 'none';
+      container.innerHTML = '';
+
+      parkings.forEach(p => {
+        const hasSpace = p.availableSpaces > 0;
+        const statusClass = hasSpace ? 'status-has' : 'status-full';
+        const statusText = hasSpace ? `🟢 剩餘 ${p.availableSpaces} 格` : '🔴 滿位';
+        const totalText = p.totalSpaces > 0 ? `/ 總位 ${p.totalSpaces}` : '';
+
+        const card = document.createElement('div');
+        card.className = 'parking-card';
+        card.innerHTML = `
+          <div class="parking-info">
+            <div class="parking-name">${p.name}</div>
+            <div class="parking-dist">📍 距離約 ${p.distanceKm} km ${totalText}</div>
+          </div>
+          <div class="parking-status-box">
+            <span class="status-tag ${statusClass}">${statusText}</span>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+  </script>
+</body>
+</html>
